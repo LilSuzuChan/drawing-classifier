@@ -1,0 +1,1 @@
+I wanted to learn about machine learning, so I tried implementing an app that analyzes drawings (∩ ͡°ω ͡° )∩
