@@ -10,6 +10,10 @@ on:
       - .github/workflows/container.yml
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   # GHCRのリポジトリ名は小文字である必要があるため固定で指定する
