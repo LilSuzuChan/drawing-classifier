@@ -7,7 +7,8 @@ kubectl apply -k k8s/
 ## イメージ
 
 `ghcr.io/lilsuzuchan/drawing-classifier` (非公開) は `.github/workflows/container.yml` が
-push 時にビルドし、`sha-<短縮コミットID>` タグを付ける。`deployment.yaml` ではこのタグを指定する。
+push 時にビルドし、`sha-<push先頭コミットの短縮ID>` タグを付ける。`deployment.yaml` ではこのタグを指定する
+(k8s/ だけの変更ではビルドされない)。
 
 ## pull 用 Secret (Git 管理外)
 
