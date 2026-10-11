@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drawing-classifier
+  namespace: drawing-classifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drawing-classifier
+  template:
+    metadata:
+      labels:
+        app: drawing-classifier
+    spec:
+      # 非公開GHCRパッケージのpull用。Secret本体はGit管理外 (k8s/README.md 参照)
+      imagePullSecrets:
+        - name: ghcr-pull
+      containers:
+        - name: web
+          image: ghcr.io/lilsuzuchan/drawing-classifier:sha-3d26934
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
