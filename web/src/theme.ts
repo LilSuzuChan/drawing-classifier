@@ -11,6 +11,9 @@ const theme = createTheme({
       paper: "#1e1e1e",
     },
   },
+  typography: {
+    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+  },
 });
 
 export default theme;

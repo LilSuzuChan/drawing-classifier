@@ -1,14 +1,65 @@
 import { useEffect, useRef, useState } from "react";
+// "wasm" Execution Providerのみを使うので、WebGPU等を含むフルバンドルではなく
+// WASM専用のビルド(onnxruntime-web/wasm)を使う
+import * as ort from "onnxruntime-web/wasm";
+// "?url"でViteにビルド資産として扱わせ、正しいURLを解決してもらう
+// (このファイルはVite開発サーバー上で素の/public配下のファイルとしてimportできないため)
+import ortWasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.wasm?url";
+import ortWasmMjsUrl from "onnxruntime-web/ort-wasm-simd-threaded.mjs?url";
 import Container from "@mui/material/Container";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import Paper from "@mui/material/Paper";
 import Box from "@mui/material/Box";
+import { softmax } from "./softmax";
+
+// onnxruntime-webがWASM本体を読みにいく場所
+ort.env.wasm.wasmPaths = {
+  wasm: ortWasmUrl,
+  mjs: ortWasmMjsUrl,
+};
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const sessionRef = useRef<ort.InferenceSession | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  // モデルロード中・推論中の両方をtrueにし、Predictボタンの連打を防ぐ
+  const [isLoading, setIsLoading] = useState(true);
+  const [prediction, setPrediction] = useState<number | null>(null);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [probabilities, setProbabilities] = useState<number[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // アプリ起動時に一度だけモデルをロードし、InferenceSessionを使い回す
+  useEffect(() => {
+    let cancelled = false;
+
+    ort.InferenceSession.create("/models/mnist_model.onnx", {
+      executionProviders: ["wasm"],
+    })
+      .then((session) => {
+        if (cancelled) {
+          return;
+        }
+
+        sessionRef.current = session;
+        setIsLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load ONNX model:", err);
+
+        if (!cancelled) {
+          setError("モデルの読み込みに失敗しました。");
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -96,11 +147,11 @@ function App() {
     context.fillRect(0, 0, canvas.width, canvas.height);
   };
 
-  const preprocessCanvas = () => {
+  const preprocessCanvas = (): Float32Array | null => {
     const canvas = canvasRef.current;
 
     if (!canvas) {
-      return;
+      return null;
     }
 
     // 28 × 28 のCanvasをメモリ上に作成
@@ -112,7 +163,7 @@ function App() {
     const context = resizedCanvas.getContext("2d");
 
     if (!context) {
-      return;
+      return null;
     }
 
     // 280 × 280 → 28 × 28
@@ -140,13 +191,55 @@ function App() {
       pixels.push(red / 255);
     }
 
-    console.log("pixel count:", pixels.length);
-    console.log("pixels:", pixels);
+    return Float32Array.from(pixels);
+  };
+
+  const handlePredict = async () => {
+    const session = sessionRef.current;
+
+    if (!session || isLoading) {
+      return;
+    }
+
+    const pixels = preprocessCanvas();
+
+    if (!pixels) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const tensor = new ort.Tensor("float32", pixels, [1, 1, 28, 28]);
+      const results = await session.run({ input: tensor });
+
+      // Softmax適用前のlogits(10クラス分)
+      const logits = results.output.data as Float32Array;
+      const probs = softmax(logits);
+
+      let predictedDigit = 0;
+
+      for (let digit = 1; digit < probs.length; digit++) {
+        if (probs[digit] > probs[predictedDigit]) {
+          predictedDigit = digit;
+        }
+      }
+
+      setProbabilities(probs);
+      setPrediction(predictedDigit);
+      setConfidence(probs[predictedDigit]);
+    } catch (err) {
+      console.error("Failed to run inference:", err);
+      setError("推論に失敗しました。");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Stack spacing={4} sx={{ alignItems: "center" }}>
+    <Container maxWidth="md" sx={{ py: 8 }}>
+      <Stack spacing={5} sx={{ alignItems: "center" }}>
         <Stack spacing={1} sx={{ alignItems: "center" }}>
           <Box
             component="img"
@@ -160,37 +253,140 @@ function App() {
           </Typography>
         </Stack>
 
-        <Paper
-          variant="outlined"
-          sx={{ p: 2, borderColor: "divider", display: "inline-flex" }}
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={4}
+          sx={{
+            width: "100%",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
-          <canvas
-            ref={canvasRef}
-            width={280}
-            height={280}
-            onPointerDown={startDrawing}
-            onPointerMove={draw}
-            onPointerUp={stopDrawing}
-            onPointerLeave={stopDrawing}
-            style={{
-              cursor: "crosshair",
-              touchAction: "none",
-              display: "block",
-              width: "100%",
-              maxWidth: "20rem",
-              height: "auto",
-              aspectRatio: "1 / 1",
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              borderColor: "divider",
+              width: "22rem",
+              height: "25rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-          />
-        </Paper>
+          >
+            <canvas
+              ref={canvasRef}
+              width={280}
+              height={280}
+              onPointerDown={startDrawing}
+              onPointerMove={draw}
+              onPointerUp={stopDrawing}
+              onPointerLeave={stopDrawing}
+              style={{
+                cursor: "crosshair",
+                touchAction: "none",
+                display: "block",
+                width: "100%",
+                maxWidth: "20rem",
+                height: "auto",
+                aspectRatio: "1 / 1",
+              }}
+            />
+          </Paper>
 
-        <Stack direction="row" spacing={2}>
-          <Button variant="outlined" color="inherit" onClick={clearCanvas}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 2,
+              width: "22rem",
+              height: "25rem",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {prediction !== null && confidence !== null && probabilities ? (
+              <>
+                <Stack spacing={0.5} sx={{ alignItems: "center" }}>
+                  <Typography variant="overline" color="text.secondary">
+                    Prediction
+                  </Typography>
+
+                  <Typography variant="h3" color="primary">
+                    {prediction}
+                  </Typography>
+
+                  <Typography variant="body2" color="text.secondary">
+                    Confidence: {(confidence * 100).toFixed(1)}%
+                  </Typography>
+                </Stack>
+
+                <Stack spacing={0.5} sx={{ mt: 2 }}>
+                  {probabilities.map((probability, digit) => (
+                    <Stack
+                      key={digit}
+                      direction="row"
+                      sx={{ justifyContent: "space-between" }}
+                    >
+                      <Typography
+                        variant="body2"
+                        color={digit === prediction ? "primary" : "text.secondary"}
+                        sx={{ fontWeight: digit === prediction ? 700 : 400 }}
+                      >
+                        {digit}
+                      </Typography>
+
+                      <Typography
+                        variant="body2"
+                        color={digit === prediction ? "primary" : "text.secondary"}
+                        sx={{ fontWeight: digit === prediction ? 700 : 400 }}
+                      >
+                        {(probability * 100).toFixed(1)}%
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </>
+            ) : (
+              <Stack
+                sx={{
+                  flex: 1,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Typography
+                  color={error ? "error.main" : "text.secondary"}
+                  align="center"
+                  variant="body2"
+                >
+                  {error ?? "Draw a digit and press Predict to see the result here."}
+                </Typography>
+              </Stack>
+            )}
+          </Paper>
+        </Stack>
+
+        <Stack direction="row" spacing={2} sx={{ justifyContent: "center" }}>
+          <Button
+            variant="outlined"
+            color="inherit"
+            onClick={clearCanvas}
+            disabled={isLoading}
+          >
             Clear
           </Button>
 
-          <Button variant="contained" color="primary" onClick={preprocessCanvas}>
-            Predict
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handlePredict}
+            disabled={isLoading}
+          >
+            {!sessionRef.current && isLoading
+              ? "Loading model..."
+              : isLoading
+                ? "Predicting..."
+                : "Predict"}
           </Button>
         </Stack>
       </Stack>
