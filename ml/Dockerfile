@@ -56,4 +56,9 @@ COPY --from=web-models mnist_model.onnx /work/web/public/models/mnist_model.onnx
 WORKDIR /work/ml
 USER 1000:1000
 ENV DRAWING_CLASSIFIER_IMAGE_TEST=1
-RUN --network=none python -m pytest -p no:cacheprovider -v
+RUN --network=none mkdir -p /tmp/pytest-report \
+    && { python -m pytest -p no:cacheprovider -v -rfE --junitxml=/tmp/pytest-report/junit.xml > /tmp/pytest-report/output.txt 2>&1; echo $? > /tmp/pytest-report/exit-code; } \
+    && cat /tmp/pytest-report/output.txt
+
+FROM scratch AS test-report
+COPY --from=test /tmp/pytest-report /

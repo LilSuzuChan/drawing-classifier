@@ -35,11 +35,38 @@ jobs:
         with:
           context: ml
           file: ml/Dockerfile
-          target: test
+          target: test-report
           build-contexts: web-models=web/public/models
-          push: false
+          outputs: type=local,dest=${{ runner.temp }}/pytest-report
           cache-from: type=gha,scope=ml-image
           cache-to: type=gha,scope=ml-image,mode=max
+
+      - name: Report test results
+        env:
+          REPORT_DIR: ${{ runner.temp }}/pytest-report
+        run: |
+          cat "$REPORT_DIR/output.txt"
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          def escape(text, is_property=False):
+              text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              return text.replace(":", "%3A").replace(",", "%2C") if is_property else text
+
+          report = os.environ["REPORT_DIR"]
+          junit = os.path.join(report, "junit.xml")
+          if not os.path.exists(junit):
+              with open(os.path.join(report, "output.txt")) as output:
+                  print(f"::error title=pytest::{escape(output.read()[-3000:])}")
+          else:
+              for case in ET.parse(junit).getroot().iter("testcase"):
+                  for problem in case.findall("failure") + case.findall("error"):
+                      name = f"{case.get('classname')}.{case.get('name')}"
+                      detail = (problem.get("message") or "") + "\n" + (problem.text or "")
+                      print(f"::error title={escape('pytest ' + name, True)}::{escape(detail[-3000:])}")
+          PY
+          exit "$(cat "$REPORT_DIR/exit-code")"
 
       - name: Log in to the Container registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
