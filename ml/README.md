@@ -21,3 +21,18 @@ uv run pytest
 ```
 
 学習・評価・ONNXエクスポートの処理は `src/drawing_classifier/` の関数(`data`、`training`、`evaluation`、`onnx_export`)にあり、`train.py` と `export.py` はそれらを呼び出すCLIです。ONNXの入出力(`input`: [batch,1,28,28]、`output`: [batch,10])は変更しないでください。
+
+## 学習用コンテナイメージ
+
+`Dockerfile` はKFPの学習パイプライン用のイメージ(`ghcr.io/lilsuzuchan/drawing-classifier-train`)を作ります。Linuxでは `pyproject.toml` の設定によりCPU版のtorchを使い、`pipeline` グループの `kfp` を含みます。MNISTはビルド時に `docker/mnist.sha256` で検証してから `/opt/mnist` に格納するため、実行時にネットワークは不要です(`load_mnist("/opt/mnist", download=False)`)。実行ユーザーはUID/GID 1000です。
+
+```bash
+# pipelineグループも含めた依存パッケージのインストール
+uv sync --group dev --group pipeline
+
+# イメージ内のテスト(testステージ)とイメージのビルド。リポジトリのルートで実行
+docker buildx build ml --target test --build-context web-models=web/public/models
+docker buildx build ml --target runtime -t drawing-classifier-train
+```
+
+`.github/workflows/ml-image.yml` が、testステージの成功後にイメージをGHCRへpushします。パイプラインからはタグではなくdigestで参照してください。

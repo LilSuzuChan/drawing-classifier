@@ -1,0 +1,13 @@
+*
+!pyproject.toml
+!uv.lock
+!.python-version
+!README.md
+!train.py
+!export.py
+!model.py
+!src/
+!tests/
+!docker/
+**/__pycache__
+**/*.py[cod]
