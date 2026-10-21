@@ -47,9 +47,10 @@ def test_package_is_installed_into_the_image_environment():
 def test_installed_files_are_readable_but_not_writable(directory):
     files = [path for path in directory.rglob("*") if path.is_file()]
     assert files
-    assert all(os.access(path, os.R_OK) for path in files)
+    assert [path for path in files if not os.access(path, os.R_OK)] == []
     assert not os.access(directory, os.W_OK)
-    assert not any(os.access(path, os.W_OK) for path in files)
+    writable = [path for path in files if os.access(path, os.W_OK)]
+    assert [(str(path), oct(path.stat().st_mode), path.stat().st_uid, path.is_symlink()) for path in writable[:20]] == []
 
 
 def test_temporary_directory_and_home_are_writable():
