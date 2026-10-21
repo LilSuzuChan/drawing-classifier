@@ -1,0 +1,480 @@
+# PIPELINE DEFINITION
+# Name: drawing-classifier-training
+# Description: Train, evaluate and export the MNIST drawing classifier on CPU with the pinned training image
+# Inputs:
+#    batch_size: int [Default: 64.0]
+#    epochs: int [Default: 1.0]
+#    learning_rate: float [Default: 0.001]
+#    min_accuracy: float [Default: 0.9]
+#    parity_samples: int [Default: 256.0]
+#    parity_tolerance: float [Default: 0.0001]
+#    seed: int [Default: 42.0]
+#    validation_size: int [Default: 5000.0]
+components:
+  comp-evaluate:
+    executorLabel: exec-evaluate
+    inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        training_config:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        batch_size:
+          parameterType: NUMBER_INTEGER
+        min_accuracy:
+          parameterType: NUMBER_DOUBLE
+        mnist_dir:
+          parameterType: STRING
+        num_threads:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        confusion_matrix:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        evaluation:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: BOOLEAN
+  comp-export:
+    executorLabel: exec-export
+    inputDefinitions:
+      artifacts:
+        evaluation:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        mnist_dir:
+          parameterType: STRING
+        parity_samples:
+          parameterType: NUMBER_INTEGER
+        parity_tolerance:
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        onnx_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-train:
+    executorLabel: exec-train
+    inputDefinitions:
+      parameters:
+        batch_size:
+          parameterType: NUMBER_INTEGER
+        epochs:
+          parameterType: NUMBER_INTEGER
+        image:
+          parameterType: STRING
+        learning_rate:
+          parameterType: NUMBER_DOUBLE
+        mnist_dir:
+          parameterType: STRING
+        num_threads:
+          parameterType: NUMBER_INTEGER
+        run_id:
+          parameterType: STRING
+        seed:
+          parameterType: NUMBER_INTEGER
+        validation_size:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        training_config:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-evaluate:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate(\n    mnist_dir: str,\n    min_accuracy: float,\n  \
+          \  batch_size: int,\n    num_threads: int,\n    model: Input[Model],\n \
+          \   training_config: Input[Artifact],\n    metrics: Output[Metrics],\n \
+          \   confusion_matrix: Output[ClassificationMetrics],\n    evaluation: Output[Artifact],\n\
+          ) -> bool:\n    import hashlib\n    import json\n\n    import torch\n\n\
+          \    from drawing_classifier.data import load_mnist, make_loader\n    from\
+          \ drawing_classifier.evaluation import evaluate as evaluate_model\n    from\
+          \ drawing_classifier.evaluation import meets_threshold\n    from drawing_classifier.model\
+          \ import MnistModel\n\n    with open(model.path, \"rb\") as file:\n    \
+          \    model_sha256 = hashlib.sha256(file.read()).hexdigest()\n    with open(training_config.path)\
+          \ as file:\n        conditions = json.load(file)\n    if model_sha256 !=\
+          \ conditions[\"model_sha256\"]:\n        raise ValueError(f\"model sha256\
+          \ {model_sha256} does not match the training record {conditions['model_sha256']}\"\
+          )\n\n    torch.set_num_threads(num_threads)\n    device = torch.device(\"\
+          cpu\")\n    net = MnistModel()\n    net.load_state_dict(torch.load(model.path,\
+          \ map_location=device, weights_only=True))\n    test_set = load_mnist(mnist_dir,\
+          \ train=False, download=False)\n    result = evaluate_model(net, make_loader(test_set,\
+          \ batch_size, shuffle=False), device)\n    passed = meets_threshold(result,\
+          \ min_accuracy)\n    print(f\"test_loss={result.loss:.4f} test_accuracy={result.accuracy:.4f}\
+          \ ({result.correct}/{result.total}) passed={passed}\", flush=True)\n\n \
+          \   metrics.log_metric(\"test_accuracy\", round(result.accuracy, 6))\n \
+          \   metrics.log_metric(\"test_loss\", round(result.loss, 6))\n    metrics.log_metric(\"\
+          test_samples\", result.total)\n    metrics.log_metric(\"min_accuracy\",\
+          \ min_accuracy)\n    confusion_matrix.log_confusion_matrix([str(label) for\
+          \ label in range(len(result.confusion_matrix))], result.confusion_matrix)\n\
+          \n    record = {\n        \"model_sha256\": model_sha256,\n        \"test_loss\"\
+          : result.loss,\n        \"test_accuracy\": result.accuracy,\n        \"\
+          test_correct\": result.correct,\n        \"test_samples\": result.total,\n\
+          \        \"confusion_matrix\": result.confusion_matrix,\n        \"min_accuracy\"\
+          : min_accuracy,\n        \"meets_threshold\": passed,\n        \"training\"\
+          : {key: conditions[key] for key in (\"epochs\", \"batch_size\", \"learning_rate\"\
+          , \"seed\", \"image\", \"run_id\")},\n    }\n    with open(evaluation.path,\
+          \ \"w\") as file:\n        json.dump(record, file, indent=2, sort_keys=True)\n\
+          \    evaluation.metadata.update(\n        {\n            \"model_sha256\"\
+          : model_sha256,\n            \"test_accuracy\": result.accuracy,\n     \
+          \       \"test_loss\": result.loss,\n            \"min_accuracy\": min_accuracy,\n\
+          \            \"meets_threshold\": passed,\n        }\n    )\n    return\
+          \ passed\n\n"
+        image: ghcr.io/lilsuzuchan/drawing-classifier-train@sha256:ad8c4d2939e73aebd53d2f3e093ddb48c5e9061adf0c1a3071bc00ec2132b8f2
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.5
+          memoryLimit: 1.610612736
+          memoryRequest: 0.805306368
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 1536Mi
+          resourceMemoryRequest: 768Mi
+    exec-export:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - export
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef export(\n    mnist_dir: str,\n    parity_samples: int,\n    parity_tolerance:\
+          \ float,\n    model: Input[Model],\n    evaluation: Input[Artifact],\n \
+          \   onnx_model: Output[Model],\n    metrics: Output[Metrics],\n):\n    import\
+          \ hashlib\n    import json\n\n    import numpy as np\n    import onnx\n\
+          \    import torch\n    from onnx.reference import ReferenceEvaluator\n\n\
+          \    from drawing_classifier.data import load_mnist\n    from drawing_classifier.model\
+          \ import MnistModel\n    from drawing_classifier.onnx_export import INPUT_NAME,\
+          \ OUTPUT_NAME, export_onnx\n\n    expected_contract = {\n        \"inputs\"\
+          : [[\"input\", [\"batch\", 1, 28, 28], onnx.TensorProto.FLOAT]],\n     \
+          \   \"outputs\": [[\"output\", [\"batch\", 10], onnx.TensorProto.FLOAT]],\n\
+          \    }\n\n    def sha256_of(path):\n        with open(path, \"rb\") as file:\n\
+          \            return hashlib.sha256(file.read()).hexdigest()\n\n    def signature(values):\n\
+          \        return [\n            [value.name, [dim.dim_param or dim.dim_value\
+          \ for dim in value.type.tensor_type.shape.dim], value.type.tensor_type.elem_type]\n\
+          \            for value in values\n        ]\n\n    with open(evaluation.path)\
+          \ as file:\n        evaluated = json.load(file)\n    model_sha256 = sha256_of(model.path)\n\
+          \    if model_sha256 != evaluated[\"model_sha256\"]:\n        raise ValueError(f\"\
+          model sha256 {model_sha256} is not the evaluated model {evaluated['model_sha256']}\"\
+          )\n\n    net = MnistModel()\n    net.load_state_dict(torch.load(model.path,\
+          \ map_location=\"cpu\", weights_only=True))\n    net.eval()\n    export_onnx(net,\
+          \ onnx_model.path)\n\n    proto = onnx.load(onnx_model.path)\n    onnx.checker.check_model(proto)\n\
+          \    contract = {\"inputs\": signature(proto.graph.input), \"outputs\":\
+          \ signature(proto.graph.output)}\n    if contract != expected_contract or\
+          \ (INPUT_NAME, OUTPUT_NAME) != (\"input\", \"output\"):\n        raise ValueError(f\"\
+          ONNX contract {contract} differs from the web app contract {expected_contract}\"\
+          )\n\n    test_set = load_mnist(mnist_dir, train=False, download=False)\n\
+          \    images = torch.stack([test_set[index][0] for index in range(parity_samples)])\n\
+          \    with torch.no_grad():\n        expected = net(images).numpy()\n   \
+          \ actual = ReferenceEvaluator(proto).run(None, {INPUT_NAME: images.numpy()})[0]\n\
+          \    max_abs_diff = float(np.abs(actual - expected).max())\n    argmax_agreement\
+          \ = float((actual.argmax(axis=1) == expected.argmax(axis=1)).mean())\n \
+          \   print(f\"onnx parity: samples={parity_samples} max_abs_diff={max_abs_diff:.3e}\
+          \ argmax_agreement={argmax_agreement}\", flush=True)\n    if max_abs_diff\
+          \ > parity_tolerance:\n        raise ValueError(f\"ONNX output differs from\
+          \ PyTorch by {max_abs_diff}, above {parity_tolerance}\")\n\n    metrics.log_metric(\"\
+          onnx_max_abs_diff\", max_abs_diff)\n    metrics.log_metric(\"onnx_argmax_agreement\"\
+          , argmax_agreement)\n    metrics.log_metric(\"onnx_parity_samples\", parity_samples)\n\
+          \n    onnx_model.metadata.update(\n        {\n            \"framework\"\
+          : \"onnx\",\n            \"opset\": max(entry.version for entry in proto.opset_import\
+          \ if entry.domain in (\"\", \"ai.onnx\")),\n            \"sha256\": sha256_of(onnx_model.path),\n\
+          \            \"source_model_sha256\": model_sha256,\n            \"input\"\
+          : \"input[batch,1,28,28] float32\",\n            \"output\": \"output[batch,10]\
+          \ float32\",\n            \"test_accuracy\": evaluated[\"test_accuracy\"\
+          ],\n            \"meets_threshold\": evaluated[\"meets_threshold\"],\n \
+          \           \"max_abs_diff\": max_abs_diff,\n            **{f\"train_{key}\"\
+          : value for key, value in evaluated[\"training\"].items()},\n        }\n\
+          \    )\n\n"
+        image: ghcr.io/lilsuzuchan/drawing-classifier-train@sha256:ad8c4d2939e73aebd53d2f3e093ddb48c5e9061adf0c1a3071bc00ec2132b8f2
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.5
+          memoryLimit: 1.610612736
+          memoryRequest: 0.805306368
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 1536Mi
+          resourceMemoryRequest: 768Mi
+    exec-train:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train
+        command:
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train(\n    mnist_dir: str,\n    epochs: int,\n    batch_size:\
+          \ int,\n    learning_rate: float,\n    seed: int,\n    validation_size:\
+          \ int,\n    num_threads: int,\n    image: str,\n    run_id: str,\n    model:\
+          \ Output[Model],\n    training_config: Output[Artifact],\n    metrics: Output[Metrics],\n\
+          ):\n    import hashlib\n    import json\n    import os\n    import platform\n\
+          \n    import torch\n\n    from drawing_classifier.data import load_mnist,\
+          \ make_loader, split_train_validation\n    from drawing_classifier.model\
+          \ import MnistModel\n    from drawing_classifier.training import TrainConfig,\
+          \ fit, set_seed\n\n    def sha256_of(path):\n        digest = hashlib.sha256()\n\
+          \        with open(path, \"rb\") as file:\n            for block in iter(lambda:\
+          \ file.read(1 << 20), b\"\"):\n                digest.update(block)\n  \
+          \      return digest.hexdigest()\n\n    torch.set_num_threads(num_threads)\n\
+          \    set_seed(seed)\n    device = torch.device(\"cpu\")\n    config = TrainConfig(epochs=epochs,\
+          \ batch_size=batch_size, learning_rate=learning_rate, seed=seed)\n\n   \
+          \ dataset = load_mnist(mnist_dir, train=True, download=False)\n    train_set,\
+          \ validation_set = split_train_validation(dataset, validation_size, seed=seed)\n\
+          \    raw_dir = os.path.join(mnist_dir, \"MNIST\", \"raw\")\n    dataset_files\
+          \ = {\n        name: sha256_of(os.path.join(raw_dir, name))\n        for\
+          \ name in (\"t10k-images-idx3-ubyte\", \"t10k-labels-idx1-ubyte\", \"train-images-idx3-ubyte\"\
+          , \"train-labels-idx1-ubyte\")\n    }\n\n    def report(result):\n     \
+          \   print(\n            f\"epoch {result.epoch}/{epochs} train_loss={result.train_loss:.4f}\
+          \ \"\n            f\"validation_loss={result.validation.loss:.4f} validation_accuracy={result.validation.accuracy:.4f}\"\
+          ,\n            flush=True,\n        )\n\n    net = MnistModel()\n    history\
+          \ = fit(\n        net,\n        make_loader(train_set, batch_size, shuffle=True,\
+          \ seed=seed),\n        config,\n        device,\n        validation_loader=make_loader(validation_set,\
+          \ batch_size, shuffle=False),\n        on_epoch_end=report,\n    )\n   \
+          \ final = history.epochs[-1]\n\n    torch.save(net.state_dict(), model.path)\n\
+          \    model_sha256 = sha256_of(model.path)\n\n    conditions = {\n      \
+          \  \"epochs\": epochs,\n        \"batch_size\": batch_size,\n        \"\
+          learning_rate\": learning_rate,\n        \"seed\": seed,\n        \"validation_size\"\
+          : validation_size,\n        \"train_samples\": len(train_set),\n       \
+          \ \"validation_samples\": len(validation_set),\n        \"optimizer\": \"\
+          Adam\",\n        \"loss\": \"CrossEntropyLoss\",\n        \"device\": device.type,\n\
+          \        \"num_threads\": num_threads,\n        \"image\": image,\n    \
+          \    \"run_id\": run_id,\n        \"torch_version\": torch.__version__,\n\
+          \        \"python_version\": platform.python_version(),\n        \"mnist_dir\"\
+          : mnist_dir,\n        \"dataset_sha256\": dataset_files,\n        \"model_sha256\"\
+          : model_sha256,\n        \"history\": [\n            {\n               \
+          \ \"epoch\": result.epoch,\n                \"train_loss\": result.train_loss,\n\
+          \                \"validation_loss\": result.validation.loss,\n        \
+          \        \"validation_accuracy\": result.validation.accuracy,\n        \
+          \    }\n            for result in history.epochs\n        ],\n    }\n  \
+          \  with open(training_config.path, \"w\") as file:\n        json.dump(conditions,\
+          \ file, indent=2, sort_keys=True)\n\n    scalar_conditions = {key: value\
+          \ for key, value in conditions.items() if isinstance(value, (str, int, float))}\n\
+          \    training_config.metadata.update(scalar_conditions)\n    model.metadata.update(\n\
+          \        {\n            \"framework\": \"pytorch\",\n            \"format\"\
+          : \"state_dict\",\n            \"model_class\": \"drawing_classifier.model.MnistModel\"\
+          ,\n            \"sha256\": model_sha256,\n            **{key: scalar_conditions[key]\
+          \ for key in (\"epochs\", \"batch_size\", \"learning_rate\", \"seed\", \"\
+          image\", \"run_id\", \"torch_version\")},\n        }\n    )\n\n    metrics.log_metric(\"\
+          train_loss\", round(final.train_loss, 6))\n    metrics.log_metric(\"validation_loss\"\
+          , round(final.validation.loss, 6))\n    metrics.log_metric(\"validation_accuracy\"\
+          , round(final.validation.accuracy, 6))\n    metrics.log_metric(\"epochs\"\
+          , epochs)\n\n"
+        image: ghcr.io/lilsuzuchan/drawing-classifier-train@sha256:ad8c4d2939e73aebd53d2f3e093ddb48c5e9061adf0c1a3071bc00ec2132b8f2
+        resources:
+          cpuLimit: 2.0
+          cpuRequest: 1.0
+          memoryLimit: 2.147483648
+          memoryRequest: 1.073741824
+          resourceCpuLimit: '2'
+          resourceCpuRequest: '1'
+          resourceMemoryLimit: 2Gi
+          resourceMemoryRequest: 1Gi
+pipelineInfo:
+  description: Train, evaluate and export the MNIST drawing classifier on CPU with
+    the pinned training image
+  name: drawing-classifier-training
+root:
+  dag:
+    tasks:
+      evaluate:
+        cachingOptions: {}
+        componentRef:
+          name: comp-evaluate
+        dependentTasks:
+        - train
+        inputs:
+          artifacts:
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train
+            training_config:
+              taskOutputArtifact:
+                outputArtifactKey: training_config
+                producerTask: train
+          parameters:
+            batch_size:
+              runtimeValue:
+                constant: 1000.0
+            min_accuracy:
+              componentInputParameter: min_accuracy
+            mnist_dir:
+              runtimeValue:
+                constant: /opt/mnist
+            num_threads:
+              runtimeValue:
+                constant: 1.0
+        taskInfo:
+          name: Evaluate
+      export:
+        cachingOptions: {}
+        componentRef:
+          name: comp-export
+        dependentTasks:
+        - evaluate
+        - train
+        inputs:
+          artifacts:
+            evaluation:
+              taskOutputArtifact:
+                outputArtifactKey: evaluation
+                producerTask: evaluate
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train
+          parameters:
+            mnist_dir:
+              runtimeValue:
+                constant: /opt/mnist
+            parity_samples:
+              componentInputParameter: parity_samples
+            parity_tolerance:
+              componentInputParameter: parity_tolerance
+        taskInfo:
+          name: Export
+      train:
+        cachingOptions: {}
+        componentRef:
+          name: comp-train
+        inputs:
+          parameters:
+            batch_size:
+              componentInputParameter: batch_size
+            epochs:
+              componentInputParameter: epochs
+            image:
+              runtimeValue:
+                constant: ghcr.io/lilsuzuchan/drawing-classifier-train@sha256:ad8c4d2939e73aebd53d2f3e093ddb48c5e9061adf0c1a3071bc00ec2132b8f2
+            learning_rate:
+              componentInputParameter: learning_rate
+            mnist_dir:
+              runtimeValue:
+                constant: /opt/mnist
+            num_threads:
+              runtimeValue:
+                constant: 2.0
+            run_id:
+              runtimeValue:
+                constant: '{{$.pipeline_job_uuid}}'
+            seed:
+              componentInputParameter: seed
+            validation_size:
+              componentInputParameter: validation_size
+        taskInfo:
+          name: Train
+  inputDefinitions:
+    parameters:
+      batch_size:
+        defaultValue: 64.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      epochs:
+        defaultValue: 1.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      learning_rate:
+        defaultValue: 0.001
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      min_accuracy:
+        defaultValue: 0.9
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      parity_samples:
+        defaultValue: 256.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      parity_tolerance:
+        defaultValue: 0.0001
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      seed:
+        defaultValue: 42.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      validation_size:
+        defaultValue: 5000.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0
+---
+platforms:
+  kubernetes:
+    pipelineConfig:
+      activeDeadlineSeconds: 3600
