@@ -31,7 +31,9 @@ uv run pytest
 uv sync --group dev --group pipeline
 
 # イメージ内のテスト(testステージ)とイメージのビルド。リポジトリのルートで実行
-docker buildx build ml --target test --build-context web-models=web/public/models
+# testステージはpytestの結果をファイルに残すため、終了コードは exit-code で確認する
+docker buildx build ml --target test-report --build-context web-models=web/public/models --output type=local,dest=pytest-report
+cat pytest-report/output.txt && test "$(cat pytest-report/exit-code)" = 0
 docker buildx build ml --target runtime -t drawing-classifier-train
 ```
 
