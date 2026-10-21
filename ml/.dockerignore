@@ -8,6 +8,7 @@
 !model.py
 !src/
 !tests/
-!docker/
+!pipeline/
+!container/
 **/__pycache__
 **/*.py[cod]

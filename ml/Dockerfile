@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM ${PYTHON_IMAGE} AS mnist
 ARG MNIST_BASE_URL=https://ossci-datasets.s3.amazonaws.com/mnist/
 WORKDIR /opt/mnist/MNIST/raw
-COPY docker/mnist.sha256 /tmp/mnist.sha256
+COPY container/mnist.sha256 /tmp/mnist.sha256
 RUN for file in $(awk '{print $2}' /tmp/mnist.sha256); do \
         python -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "${MNIST_BASE_URL}${file}" "${file}"; \
     done \
@@ -54,6 +54,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && rm -f /opt/venv/.lock
 COPY pyproject.toml train.py export.py model.py /work/ml/
 COPY tests /work/ml/tests
+COPY pipeline /work/ml/pipeline
 COPY --from=web-models mnist_model.onnx /work/web/public/models/mnist_model.onnx
 WORKDIR /work/ml
 USER 1000:1000
