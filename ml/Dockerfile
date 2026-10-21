@@ -49,7 +49,7 @@ COPY pyproject.toml uv.lock .python-version README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
-    uv sync --frozen --no-dev --group pipeline --group dev --no-install-project --inexact
+    uv sync --frozen --group dev --group pipeline --no-install-project --inexact
 COPY pyproject.toml train.py export.py model.py /work/ml/
 COPY tests /work/ml/tests
 COPY --from=web-models mnist_model.onnx /work/web/public/models/mnist_model.onnx
