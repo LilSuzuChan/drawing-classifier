@@ -16,7 +16,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && uv sync --frozen --no-dev --group pipeline --no-install-project
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --group pipeline --no-editable
+    uv sync --frozen --no-dev --group pipeline --no-editable \
+    && rm -f /opt/venv/.lock
 
 FROM ${PYTHON_IMAGE} AS mnist
 ARG MNIST_BASE_URL=https://ossci-datasets.s3.amazonaws.com/mnist/
@@ -49,7 +50,8 @@ COPY pyproject.toml uv.lock .python-version README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy \
-    uv sync --frozen --group dev --group pipeline --no-install-project --inexact
+    uv sync --frozen --group dev --group pipeline --no-install-project --inexact \
+    && rm -f /opt/venv/.lock
 COPY pyproject.toml train.py export.py model.py /work/ml/
 COPY tests /work/ml/tests
 COPY --from=web-models mnist_model.onnx /work/web/public/models/mnist_model.onnx

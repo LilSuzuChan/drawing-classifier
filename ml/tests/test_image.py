@@ -49,8 +49,7 @@ def test_installed_files_are_readable_but_not_writable(directory):
     assert files
     assert [path for path in files if not os.access(path, os.R_OK)] == []
     assert not os.access(directory, os.W_OK)
-    writable = [path for path in files if os.access(path, os.W_OK)]
-    assert [(str(path), oct(path.stat().st_mode), path.stat().st_uid, path.is_symlink()) for path in writable[:20]] == []
+    assert [(str(path), oct(path.stat().st_mode)) for path in files if os.access(path, os.W_OK)] == []
 
 
 def test_temporary_directory_and_home_are_writable():
