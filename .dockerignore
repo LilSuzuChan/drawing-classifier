@@ -1,4 +1,9 @@
-ml/
+ml/*
+!ml/src/
+ml/src/*
+!ml/src/drawing_classifier/
+ml/src/drawing_classifier/*
+!ml/src/drawing_classifier/feedback.py
 .git/
 .vscode/
 web/node_modules/

@@ -23,6 +23,13 @@ ort.env.wasm.wasmPaths = {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<ort.InferenceSession | null>(null);
+  const pixelsRef = useRef<number[] | null>(null);
+  const versionRef = useRef("bundled");
+  const [label, setLabel] = useState(0);
+  const [feedbackStatus, setFeedbackStatus] = useState("");
+  const [canFeedback, setCanFeedback] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
+  const [sending, setSending] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
 
   // モデルロード中・推論中の両方をtrueにし、Predictボタンの連打を防ぐ
@@ -36,15 +43,19 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    ort.InferenceSession.create("/models/mnist_model.onnx", {
-      executionProviders: ["wasm"],
-    })
+    fetch("/api/model.onnx", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Model API failed");
+        versionRef.current = response.headers.get("X-Model-Version") ?? "unknown";
+        return ort.InferenceSession.create(await response.arrayBuffer(), { executionProviders: ["wasm"] });
+      })
       .then((session) => {
         if (cancelled) {
           return;
         }
 
         sessionRef.current = session;
+        setModelReady(true);
         setIsLoading(false);
       })
       .catch((err) => {
@@ -104,6 +115,11 @@ function App() {
       return;
     }
 
+    if (isLoading || sending) return;
+    pixelsRef.current = null;
+    setCanFeedback(false);
+    setPrediction(null);
+    setFeedbackStatus("");
     const { x, y } = getCanvasPoint(event);
 
     context.beginPath();
@@ -145,6 +161,10 @@ function App() {
 
     context.fillStyle = "black";
     context.fillRect(0, 0, canvas.width, canvas.height);
+    pixelsRef.current = null;
+    setCanFeedback(false);
+    setPrediction(null);
+    setFeedbackStatus("");
   };
 
   const preprocessCanvas = (): Float32Array | null => {
@@ -203,10 +223,15 @@ function App() {
 
     const pixels = preprocessCanvas();
 
-    if (!pixels) {
+    if (!pixels || !pixels.some((value) => value > 0)) {
+      setError("数字を描いてから推論してください。");
       return;
     }
 
+    pixelsRef.current = null;
+    setCanFeedback(false);
+    setPrediction(null);
+    setFeedbackStatus("");
     setIsLoading(true);
     setError(null);
 
@@ -226,6 +251,9 @@ function App() {
         }
       }
 
+      pixelsRef.current = Array.from(pixels);
+      setCanFeedback(true);
+      setLabel(predictedDigit);
       setProbabilities(probs);
       setPrediction(predictedDigit);
       setConfidence(probs[predictedDigit]);
@@ -234,6 +262,26 @@ function App() {
       setError("推論に失敗しました。");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const submitFeedback = async () => {
+    if (!pixelsRef.current || prediction === null || sending) return;
+    setSending(true);
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pixels: pixelsRef.current, label, prediction, model_version: versionRef.current }),
+      });
+      if (!response.ok) throw new Error("Feedback rejected");
+      pixelsRef.current = null;
+      setCanFeedback(false);
+      setFeedbackStatus("送信しました。再学習に利用します。");
+    } catch {
+      setFeedbackStatus("送信に失敗しました。もう一度お試しください。");
+    } finally {
+      setSending(false);
     }
   };
 
@@ -366,12 +414,24 @@ function App() {
           </Paper>
         </Stack>
 
+        {prediction !== null && (
+          <Stack spacing={1} sx={{ alignItems: "center" }}>
+            <Typography>正しい数字を選んで学習用データを送信</Typography>
+            <select aria-label="正しい数字" value={label} disabled={sending} onChange={(event) => setLabel(Number(event.target.value))}>
+              {Array.from({ length: 10 }, (_, digit) => <option key={digit} value={digit}>{digit}</option>)}
+            </select>
+            <Button onClick={submitFeedback} disabled={sending || !canFeedback}>
+              {sending ? "送信中…" : "この数字でフィードバック"}
+            </Button>
+            <Typography role="status">{feedbackStatus}</Typography>
+          </Stack>
+        )}
         <Stack direction="row" spacing={2} sx={{ justifyContent: "center" }}>
           <Button
             variant="outlined"
             color="inherit"
             onClick={clearCanvas}
-            disabled={isLoading}
+            disabled={isLoading || sending}
           >
             Clear
           </Button>
@@ -380,9 +440,9 @@ function App() {
             variant="contained"
             color="primary"
             onClick={handlePredict}
-            disabled={isLoading}
+            disabled={isLoading || sending}
           >
-            {!sessionRef.current && isLoading
+            {!modelReady && isLoading
               ? "Loading model..."
               : isLoading
                 ? "Predicting..."

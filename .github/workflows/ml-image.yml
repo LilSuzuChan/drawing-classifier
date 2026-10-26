@@ -4,6 +4,7 @@ on:
   push:
     branches: ['**']
     paths:
+      - api/**
       - ml/**
       - web/public/models/mnist_model.onnx
       - .github/workflows/ml-image.yml
@@ -36,7 +37,9 @@ jobs:
           context: ml
           file: ml/Dockerfile
           target: test-report
-          build-contexts: web-models=web/public/models
+          build-contexts: |
+            web-models=web/public/models
+            api-sources=api
           outputs: type=local,dest=${{ runner.temp }}/pytest-report
           cache-from: type=gha,scope=ml-image
           cache-to: type=gha,scope=ml-image,mode=max

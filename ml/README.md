@@ -32,7 +32,7 @@ uv sync --group dev --group pipeline
 
 # イメージ内のテスト(testステージ)とイメージのビルド。リポジトリのルートで実行
 # testステージはpytestの結果をファイルに残すため、終了コードは exit-code で確認する
-docker buildx build ml --target test-report --build-context web-models=web/public/models --output type=local,dest=pytest-report
+docker buildx build ml --target test-report --build-context web-models=web/public/models --build-context api-sources=api --output type=local,dest=pytest-report
 cat pytest-report/output.txt && test "$(cat pytest-report/exit-code)" = 0
 docker buildx build ml --target runtime -t drawing-classifier-train
 ```
@@ -61,3 +61,5 @@ uv run python -m pipeline.run --epochs 1
 ```
 
 `pipeline/run.py` は、同じExperimentに実行中のrunがあると新しいrunを作りません。ServiceAccountは `pipeline-runner`、キャッシュは無効です。
+
+フィードバックを利用した日次の再学習・評価・自動配信は、リポジトリルートの [CONTINUOUS_LEARNING.md](../CONTINUOUS_LEARNING.md) を参照してください。

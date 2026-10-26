@@ -1,2 +1,6 @@
 # macOS
 .DS_Store
+
+# Python API and deployment helpers
+__pycache__/
+*.py[cod]

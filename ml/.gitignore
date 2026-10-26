@@ -24,3 +24,6 @@ data/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Compiled with the deployment-specific immutable training image
+pipeline/drawing-classifier-continuous.yaml

@@ -55,6 +55,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY pyproject.toml train.py export.py model.py /work/ml/
 COPY tests /work/ml/tests
 COPY pipeline /work/ml/pipeline
+COPY --from=api-sources server.py /work/api/server.py
 COPY --from=web-models mnist_model.onnx /work/web/public/models/mnist_model.onnx
 WORKDIR /work/ml
 USER 1000:1000

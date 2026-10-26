@@ -18,6 +18,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # 実行を拒否してしまう(onnxruntime-webのWASMローダーが.mjsを動的importする)ため追加する
 RUN printf 'types {\n    application/javascript mjs;\n}\n' > /etc/nginx/conf.d/mjs-mime.conf
 
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

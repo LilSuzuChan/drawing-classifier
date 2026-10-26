@@ -1024,6 +1024,7 @@ dev = [
 ]
 pipeline = [
     { name = "kfp" },
+    { name = "kfp-kubernetes" },
 ]
 
 [package.metadata]
@@ -1039,7 +1040,10 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]
-pipeline = [{ name = "kfp", specifier = "==2.17.0" }]
+pipeline = [
+    { name = "kfp", specifier = "==2.17.0" },
+    { name = "kfp-kubernetes", specifier = "==2.17.0" },
+]
 
 [[package]]
 name = "exceptiongroup"
@@ -1842,6 +1846,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e9/e8/a14556188eb695055db4bfa7714ed84eb555637c97e4da77b67df573499b/kfp-2.17.0.tar.gz", hash = "sha256:92dd2fc0cca5b073f14860253e936cc9e6901f871dfae355be6a9f8ea9d580c5", size = 362373, upload-time = "2026-07-09T13:46:40.295Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/c6/eab3e5ed59497c09e0aca3f1cf0fc7c9c7ceaa05be0db620787355ffb351/kfp-2.17.0-py3-none-any.whl", hash = "sha256:dff321b76b2be8a09748a1be805a88699b4919e13bb6a1bf67ebf3074ea8ce3f", size = 477920, upload-time = "2026-07-09T13:46:38.614Z" },
+]
+
+[[package]]
+name = "kfp-kubernetes"
+version = "2.17.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "kfp" },
+    { name = "protobuf" },
+    { name = "requests", version = "2.32.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "requests", version = "2.33.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "urllib3", version = "2.6.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "urllib3", version = "2.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/5e/ab074201c7e4657b4d3818050f31975fa04d82c8a74ccf2c42b550ae2007/kfp_kubernetes-2.17.0.tar.gz", hash = "sha256:28db5290d4b5aef1bfb89267574eda3ed26fc226bf9f4ddf851baf0a33a31161", size = 20384, upload-time = "2026-07-09T13:50:14.752Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/7b/e0db02a56682a37d4fc96a9c257dc81fc8f847e0575d0d4f9301c3976e56/kfp_kubernetes-2.17.0-py3-none-any.whl", hash = "sha256:822e3c59aa09a678f4f5fff392065f93495e18ffcd6cbd43ac62d8bffc0d82b8", size = 27715, upload-time = "2026-07-09T13:50:13.623Z" },
 ]
 
 [[package]]

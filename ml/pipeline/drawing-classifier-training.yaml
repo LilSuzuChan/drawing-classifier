@@ -81,6 +81,12 @@ components:
   comp-train:
     executorLabel: exec-train
     inputDefinitions:
+      artifacts:
+        feedback:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+          isOptional: true
       parameters:
         batch_size:
           parameterType: NUMBER_INTEGER
@@ -282,21 +288,29 @@ deploymentSpec:
           \ int,\n    learning_rate: float,\n    seed: int,\n    validation_size:\
           \ int,\n    num_threads: int,\n    image: str,\n    run_id: str,\n    model:\
           \ Output[Model],\n    training_config: Output[Artifact],\n    metrics: Output[Metrics],\n\
-          ):\n    import hashlib\n    import json\n    import os\n    import platform\n\
-          \n    import torch\n\n    from drawing_classifier.data import load_mnist,\
-          \ make_loader, split_train_validation\n    from drawing_classifier.model\
-          \ import MnistModel\n    from drawing_classifier.training import TrainConfig,\
-          \ fit, set_seed\n\n    def sha256_of(path):\n        digest = hashlib.sha256()\n\
-          \        with open(path, \"rb\") as file:\n            for block in iter(lambda:\
-          \ file.read(1 << 20), b\"\"):\n                digest.update(block)\n  \
-          \      return digest.hexdigest()\n\n    torch.set_num_threads(num_threads)\n\
-          \    set_seed(seed)\n    device = torch.device(\"cpu\")\n    config = TrainConfig(epochs=epochs,\
-          \ batch_size=batch_size, learning_rate=learning_rate, seed=seed)\n\n   \
-          \ dataset = load_mnist(mnist_dir, train=True, download=False)\n    train_set,\
-          \ validation_set = split_train_validation(dataset, validation_size, seed=seed)\n\
-          \    raw_dir = os.path.join(mnist_dir, \"MNIST\", \"raw\")\n    dataset_files\
-          \ = {\n        name: sha256_of(os.path.join(raw_dir, name))\n        for\
-          \ name in (\"t10k-images-idx3-ubyte\", \"t10k-labels-idx1-ubyte\", \"train-images-idx3-ubyte\"\
+          \    feedback: Input[Artifact] = None,\n):\n    import hashlib\n    import\
+          \ json\n    import os\n    import platform\n\n    import torch\n\n    from\
+          \ drawing_classifier.data import load_mnist, make_loader, split_train_validation\n\
+          \    from drawing_classifier.model import MnistModel\n    from drawing_classifier.training\
+          \ import TrainConfig, fit, set_seed\n\n    def sha256_of(path):\n      \
+          \  digest = hashlib.sha256()\n        with open(path, \"rb\") as file:\n\
+          \            for block in iter(lambda: file.read(1 << 20), b\"\"):\n   \
+          \             digest.update(block)\n        return digest.hexdigest()\n\n\
+          \    torch.set_num_threads(num_threads)\n    set_seed(seed)\n    device\
+          \ = torch.device(\"cpu\")\n    config = TrainConfig(epochs=epochs, batch_size=batch_size,\
+          \ learning_rate=learning_rate, seed=seed)\n\n    dataset = load_mnist(mnist_dir,\
+          \ train=True, download=False)\n    train_set, validation_set = split_train_validation(dataset,\
+          \ validation_size, seed=seed)\n    feedback_count = 0\n    feedback_sha256\
+          \ = None\n    if feedback is not None:\n        from torch.utils.data import\
+          \ ConcatDataset\n        from drawing_classifier.continuous import feedback_dataset,\
+          \ split_feedback\n        with open(feedback.path) as file:\n          \
+          \  records = json.load(file)\n        feedback_train, _ = split_feedback(records)\n\
+          \        feedback_count = len(feedback_train)\n        feedback_sha256 =\
+          \ sha256_of(feedback.path)\n        if feedback_train:\n            train_set\
+          \ = ConcatDataset([train_set, feedback_dataset(feedback_train)])\n    raw_dir\
+          \ = os.path.join(mnist_dir, \"MNIST\", \"raw\")\n    dataset_files = {\n\
+          \        name: sha256_of(os.path.join(raw_dir, name))\n        for name\
+          \ in (\"t10k-images-idx3-ubyte\", \"t10k-labels-idx1-ubyte\", \"train-images-idx3-ubyte\"\
           , \"train-labels-idx1-ubyte\")\n    }\n\n    def report(result):\n     \
           \   print(\n            f\"epoch {result.epoch}/{epochs} train_loss={result.train_loss:.4f}\
           \ \"\n            f\"validation_loss={result.validation.loss:.4f} validation_accuracy={result.validation.accuracy:.4f}\"\
@@ -306,13 +320,14 @@ deploymentSpec:
           \ batch_size, shuffle=False),\n        on_epoch_end=report,\n    )\n   \
           \ final = history.epochs[-1]\n\n    torch.save(net.state_dict(), model.path)\n\
           \    model_sha256 = sha256_of(model.path)\n\n    conditions = {\n      \
-          \  \"epochs\": epochs,\n        \"batch_size\": batch_size,\n        \"\
-          learning_rate\": learning_rate,\n        \"seed\": seed,\n        \"validation_size\"\
-          : validation_size,\n        \"train_samples\": len(train_set),\n       \
-          \ \"validation_samples\": len(validation_set),\n        \"optimizer\": \"\
-          Adam\",\n        \"loss\": \"CrossEntropyLoss\",\n        \"device\": device.type,\n\
-          \        \"num_threads\": num_threads,\n        \"image\": image,\n    \
-          \    \"run_id\": run_id,\n        \"torch_version\": torch.__version__,\n\
+          \  \"feedback_samples\": feedback_count,\n        \"feedback_sha256\": feedback_sha256,\n\
+          \        \"epochs\": epochs,\n        \"batch_size\": batch_size,\n    \
+          \    \"learning_rate\": learning_rate,\n        \"seed\": seed,\n      \
+          \  \"validation_size\": validation_size,\n        \"train_samples\": len(train_set),\n\
+          \        \"validation_samples\": len(validation_set),\n        \"optimizer\"\
+          : \"Adam\",\n        \"loss\": \"CrossEntropyLoss\",\n        \"device\"\
+          : device.type,\n        \"num_threads\": num_threads,\n        \"image\"\
+          : image,\n        \"run_id\": run_id,\n        \"torch_version\": torch.__version__,\n\
           \        \"python_version\": platform.python_version(),\n        \"mnist_dir\"\
           : mnist_dir,\n        \"dataset_sha256\": dataset_files,\n        \"model_sha256\"\
           : model_sha256,\n        \"history\": [\n            {\n               \

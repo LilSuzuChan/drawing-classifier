@@ -1,10 +1,15 @@
+import os
+import re
 from kfp import dsl
 from kfp.dsl import Artifact, ClassificationMetrics, Input, Metrics, Model, Output
 
-TRAINING_IMAGE = (
+TRAINING_IMAGE = os.environ.get("DRAWING_TRAINING_IMAGE") or (
     "ghcr.io/lilsuzuchan/drawing-classifier-train"
     "@sha256:ad8c4d2939e73aebd53d2f3e093ddb48c5e9061adf0c1a3071bc00ec2132b8f2"
 )
+
+if not re.fullmatch(r"ghcr\.io/[a-z0-9./-]+@sha256:[0-9a-f]{64}", TRAINING_IMAGE):
+    raise ValueError("DRAWING_TRAINING_IMAGE must be an immutable GHCR digest reference")
 
 
 @dsl.component(base_image=TRAINING_IMAGE, install_kfp_package=False)
@@ -21,6 +26,7 @@ def train(
     model: Output[Model],
     training_config: Output[Artifact],
     metrics: Output[Metrics],
+    feedback: Input[Artifact] = None,
 ):
     import hashlib
     import json
@@ -47,6 +53,18 @@ def train(
 
     dataset = load_mnist(mnist_dir, train=True, download=False)
     train_set, validation_set = split_train_validation(dataset, validation_size, seed=seed)
+    feedback_count = 0
+    feedback_sha256 = None
+    if feedback is not None:
+        from torch.utils.data import ConcatDataset
+        from drawing_classifier.continuous import feedback_dataset, split_feedback
+        with open(feedback.path) as file:
+            records = json.load(file)
+        feedback_train, _ = split_feedback(records)
+        feedback_count = len(feedback_train)
+        feedback_sha256 = sha256_of(feedback.path)
+        if feedback_train:
+            train_set = ConcatDataset([train_set, feedback_dataset(feedback_train)])
     raw_dir = os.path.join(mnist_dir, "MNIST", "raw")
     dataset_files = {
         name: sha256_of(os.path.join(raw_dir, name))
@@ -75,6 +93,8 @@ def train(
     model_sha256 = sha256_of(model.path)
 
     conditions = {
+        "feedback_samples": feedback_count,
+        "feedback_sha256": feedback_sha256,
         "epochs": epochs,
         "batch_size": batch_size,
         "learning_rate": learning_rate,

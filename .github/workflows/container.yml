@@ -4,6 +4,9 @@ on:
   push:
     branches: ['**']
     paths:
+      - api/**
+      - ml/src/drawing_classifier/feedback.py
+      - nginx.conf
       - Dockerfile
       - .dockerignore
       - web/**
@@ -54,3 +57,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Build and push feedback API
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          file: api/Dockerfile
+          push: true
+          tags: ghcr.io/lilsuzuchan/drawing-classifier-feedback:sha-${{ github.sha }}
